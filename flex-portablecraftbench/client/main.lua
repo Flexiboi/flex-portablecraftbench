@@ -17,6 +17,22 @@ local function playanim(animdic, anim)
     ClearPedTasksImmediately(ped)
 end
 
+function DeleteBench()
+    if DoesEntityExist(benchprop) then
+        playanim('random@domestic', 'pickup_low')
+        DeleteEntity(benchprop)
+        TriggerServerEvent('flex-pwb:server:givebench', benchtype, benchlevel, benchhealth)
+        placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, 0, 0
+    end
+end
+
+function BenchDied()
+    if DoesEntityExist(benchprop) then
+        DeleteEntity(benchprop)
+        placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, 0, 0
+    end
+end
+
 local function OpenCraft(benchid)
     local columns = {
         {
@@ -50,112 +66,92 @@ local function OpenCraft(benchid)
 end
 
 RegisterNetEvent('QBCore:Client:OnPlayerUnload', function()
-    if DoesEntityExist(benchprop) then
-        playanim('random@domestic', 'pickup_low')
-        QBCore.Functions.Notify(Lang:t("success.grabbench"), "success", 5000)
-        DeleteEntity(benchprop)
-        TriggerServerEvent('flex-pwb:server:givebench', benchtype, benchlevel, benchhealth)
-        placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, nil, nil
-    end
+    QBCore.Functions.Notify(Lang:t("success.grabbench"), "success", 5000)
+    DeleteBench()
 end)
+
+local function RepairBench()
+    local ped = PlayerPedId()
+    local pos = GetEntityCoords(ped)
+    if tonumber(benchhealth) >= 100 then
+        QBCore.Functions.Notify(Lang:t("success.alreadymaxhealth"), 'success', 5000)
+        return
+    end
+    QBCore.Functions.TriggerCallback("flex-pwb:server:canRepair", function(hasMaterials)
+        if not (hasMaterials) then
+            QBCore.Functions.Notify(Lang:t("error.notenoughtorepair"), 'error', 5000)
+            for k, v in pairs(Config.benches[benchtype].repaircost) do
+                QBCore.Functions.Notify(Lang:t("error.youdonthave")..v.amount..' x '..QBCore.Shared.Items[v.item].name, 'error', 5000)
+            end
+            return
+        end
+        SetPedCanPlayAmbientAnims(ped, true) 
+        TaskStartScenarioInPlace(ped, 'WORLD_HUMAN_HAMMERING', 0, false)
+        QBCore.Functions.Progressbar('repair_bench', Lang:t("info.repairingworkbench"), Config.benches[benchtype].benchrepairtime * 1000, false, false, {
+            disableMovement = true,
+            disableCarMovement = true,
+            disableMouse = false,
+            disableCombat = true,
+        }, {animDict = nil,anim = nil}, {}, {}, function() -- Success
+            QBCore.Functions.Notify(Lang:t("success.repairedbench"), 'success')
+            benchhealth = 100
+            for _, v in pairs(Config.benches[benchtype].repaircost) do
+                TriggerServerEvent('flex-pwb:server:removeItem', v.item, v.amount)
+            end
+            local hammer = GetClosestObjectOfType(pos.x, pos.y, pos.z, 5.0, GetHashKey('prop_tool_hammer'), false, true ,true)
+            if DoesEntityExist(hammer) then
+                SetEntityAsMissionEntity(hammer, false, false)
+                DeleteObject(hammer)
+            end
+            ClearPedTasksImmediately(ped)
+        end, function() -- Cancel
+            local hammer = GetClosestObjectOfType(pos.x, pos.y, pos.z, 5.0, GetHashKey('prop_tool_hammer'), false, true ,true)
+            if DoesEntityExist(hammer) then
+                SetEntityAsMissionEntity(hammer, false, false)
+                DeleteObject(hammer)
+            end
+            ClearPedTasksImmediately(ped)
+            QBCore.Functions.Notify(Lang:t("error.stoppedrepairbench"), 'error', 5000)
+        end)
+    end, Config.benches[benchtype].repaircost)
+end
 
 local function benchdistancecheck()
     CreateThread(function()
         while true do
             Citizen.Wait(1)
-            if crafting then
-                local ped = PlayerPedId()
-                local pos = GetEntityCoords(ped)
-                local distance = #(benchcoords - pos)
-                local closestVehicle, closestDistance = QBCore.Functions.GetClosestVehicle(pos)
-                if closestDistance < 5 then
-                    if DoesEntityExist(benchprop) then
-                        playanim('random@domestic', 'pickup_low')
-                        QBCore.Functions.Notify(Lang:t("error.cartoclose"), "error", 5000)
-                        DeleteEntity(benchprop)
-                        TriggerServerEvent('flex-pwb:server:givebench', benchtype, benchlevel, benchhealth)
-                        placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, nil, nil
-                    end
-                elseif distance >= 5 then
-                    if DoesEntityExist(benchprop) then
-                        playanim('random@domestic', 'pickup_low')
-                        DeleteEntity(benchprop)
-                        TriggerServerEvent('flex-pwb:server:givebench', benchtype, benchlevel, benchhealth)
-                        placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, nil, nil
-                    end
-                elseif tonumber(benchhealth) <= 0 then
-                    if DoesEntityExist(benchprop) then
-                        QBCore.Functions.Notify(Lang:t("error.benchbroke"), "error", 5000)
-                        DeleteEntity(benchprop)
-                        placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, nil, nil
-                    end
-                else
-                    QBCore.Functions.DrawText3D(benchcoords.x, benchcoords.y, benchcoords.z+0.7+Config.benches[benchtype].text3dYoffset, '~o~'..Lang:t("text.benchlevel")..'~w~: '..benchlevel)
-                    QBCore.Functions.DrawText3D(benchcoords.x, benchcoords.y, benchcoords.z+0.6+Config.benches[benchtype].text3dYoffset, '~o~'..Lang:t("text.benchhealth")..'~w~: '..benchhealth..'%')
-                    QBCore.Functions.DrawText3D(benchcoords.x, benchcoords.y, benchcoords.z+0.5+Config.benches[benchtype].text3dYoffset, '[~o~E~w~] '..Lang:t("text.craft")..' [~o~G~w~] '..Lang:t("text.takebench")..' [~o~H~w~] '..Lang:t("text.repair"))
-                    if distance <= 1.8 then
-                        if IsControlJustReleased(0, 38) then
-                            OpenCraft(benchtype)
-                        elseif IsControlJustReleased(0, 47) then
-                            if DoesEntityExist(benchprop) then
-                                playanim('random@domestic', 'pickup_low')
-                                QBCore.Functions.Notify(Lang:t("success.grabbench"), "success", 5000)
-                                DeleteEntity(benchprop)
-                                TriggerServerEvent('flex-pwb:server:givebench', benchtype, benchlevel, benchhealth)
-                                placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, nil, nil
-                            end
-                        elseif IsControlJustReleased(0, 101) then
-                            if tonumber(benchhealth) < 100 then
-                                QBCore.Functions.TriggerCallback("flex-pwb:server:canRepair", function(hasMaterials)
-                                    if (hasMaterials) then
-                                        local ped = PlayerPedId()
-                                        local pos = GetEntityCoords(ped)
-                                        SetPedCanPlayAmbientAnims(ped, true) 
-                                        TaskStartScenarioInPlace(ped, 'WORLD_HUMAN_HAMMERING', 0, false)
-                                        QBCore.Functions.Progressbar('repair_bench', Lang:t("info.repairingworkbench"), Config.benches[benchtype].benchrepairtime * 1000, false, false, {
-                                            disableMovement = true,
-                                            disableCarMovement = true,
-                                            disableMouse = false,
-                                            disableCombat = true,
-                                        }, {
-                                            animDict = nil,
-                                            anim = nil,
-                                            }, {}, {}, function() -- Success
-                                            QBCore.Functions.Notify(Lang:t("success.repairedbench"), 'success')
-                                            benchhealth = 100
-                                            for k, v in pairs(Config.benches[benchtype].repaircost) do
-                                                TriggerServerEvent('flex-pwb:server:removeItem', v.item, v.amount)
-                                            end
-                                            local hammer = GetClosestObjectOfType(pos.x, pos.y, pos.z, 5.0, GetHashKey('prop_tool_hammer'), false, true ,true)
-                                            if DoesEntityExist(hammer) then
-                                                SetEntityAsMissionEntity(hammer, false, false)
-                                                DeleteObject(hammer)
-                                            end
-                                            ClearPedTasksImmediately(ped)
-                                        end, function() -- Cancel
-                                            local hammer = GetClosestObjectOfType(pos.x, pos.y, pos.z, 5.0, GetHashKey('prop_tool_hammer'), false, true ,true)
-                                            if DoesEntityExist(hammer) then
-                                                SetEntityAsMissionEntity(hammer, false, false)
-                                                DeleteObject(hammer)
-                                            end
-                                            ClearPedTasksImmediately(ped)
-                                            QBCore.Functions.Notify(Lang:t("error.stoppedrepairbench"), 'error', 5000)
-                                        end)
-                                    else
-                                        QBCore.Functions.Notify(Lang:t("error.notenoughtorepair"), 'error', 5000)
-                                        for k, v in pairs(Config.benches[benchtype].repaircost) do
-                                            QBCore.Functions.Notify(Lang:t("error.youdonthave")..v.amount..' x '..QBCore.Shared.Items[v.item].name, 'error', 5000)
-                                        end
-                                    end
-                                end, Config.benches[benchtype].repaircost)
-                            else
-                                QBCore.Functions.Notify(Lang:t("success.alreadymaxhealth"), 'success', 5000)
-                            end
-                        end
-                    end
-                end
-            else
-                break
+            if not crafting then break end
+            local ped = PlayerPedId()
+            local pos = GetEntityCoords(ped)
+            local distance = #(benchcoords - pos)
+            local closestVehicle, closestDistance = QBCore.Functions.GetClosestVehicle(pos)
+            if closestDistance < 5 then
+                QBCore.Functions.Notify(Lang:t("error.cartoclose"), "error", 5000)
+                DeleteBench()
+                return
+            elseif distance >= 5 then
+                DeleteBench()
+                return
+            elseif tonumber(benchhealth) <= 0 then
+                QBCore.Functions.Notify(Lang:t("error.benchbroke"), "error", 5000)
+                BenchDied()
+                return
+            end
+            if not benchcoords then return end
+            -- Draw Interaction Text above bench
+            QBCore.Functions.DrawText3D(benchcoords.x, benchcoords.y, benchcoords.z+0.7+Config.benches[benchtype].text3dYoffset, '~o~'..Lang:t("text.benchlevel")..'~w~: '..benchlevel)
+            QBCore.Functions.DrawText3D(benchcoords.x, benchcoords.y, benchcoords.z+0.6+Config.benches[benchtype].text3dYoffset, '~o~'..Lang:t("text.benchhealth")..'~w~: '..benchhealth..'%')
+            QBCore.Functions.DrawText3D(benchcoords.x, benchcoords.y, benchcoords.z+0.5+Config.benches[benchtype].text3dYoffset, '[~o~E~w~] '..Lang:t("text.craft")..' [~o~G~w~] '..Lang:t("text.takebench")..' [~o~H~w~] '..Lang:t("text.repair"))
+            
+            if distance > 1.8 then return end
+
+            if IsControlJustReleased(0, 38) then -- E
+                OpenCraft(benchtype)
+            elseif IsControlJustReleased(0, 47) then -- G
+                QBCore.Functions.Notify(Lang:t("success.grabbench"), "success", 5000)
+                DeleteBench()
+            elseif IsControlJustReleased(0, 101) then -- H
+                RepairBench()
             end
         end
     end)
@@ -238,7 +234,7 @@ AddEventHandler('onResourceStop', function(resource)
             QBCore.Functions.Notify(Lang:t("success.grabbench"), "success", 5000)
             DeleteEntity(benchprop)
             TriggerServerEvent('flex-pwb:server:givebench', benchtype, benchlevel, benchhealth)
-            placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, nil, nil
+            placedbench, crafting, benchprop, benchcoords, benchtype, benchlevel, benchhealth = false, false, nil, nil, nil, 0, 0
         end
     end
 end)
