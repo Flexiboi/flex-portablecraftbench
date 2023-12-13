@@ -3,10 +3,11 @@ function PlaceObject(pObject, cb)
     local minV, maxV = GetModelDimensions(objectHash)
     
     local ObjHead = GetEntityHeading(playerPed)
+    local CentCoords = {} -- Idk why
     local ObjectCoords = CentCoords
 
-    Object = CreateObject(objectHash, CentCoords, 0, 0, 0)
-    SetEntityCollision(Object, false)
+    Object = CreateObject(objectHash, CentCoords.x, CentCoords.y, CentCoords.z, true, true, true)
+    SetEntityCollision(Object, false, true)
     RequestModelHash(objectHash)
     local placed = false
     local isInvisible = false
